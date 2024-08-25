@@ -1,0 +1,80 @@
+function doGet(e) { 
+  Logger.log(JSON.stringify(e));
+  var result = 'Ok';
+  if (e.parameter == 'undefined') {
+    result = 'No Parameters';
+  } else {
+    var sheet_id = 'REPLACE_WITH_SPREADSHEET_ID';  // Spreadsheet ID.
+    var sheet_name = "REPLACE_WITH_SHEET_NAME";  // Sheet Name in Google Sheets (not document name).
+
+    var sheet_open = SpreadsheetApp.openById(sheet_id);
+    var sheet_target = sheet_open.getSheetByName(sheet_name);
+
+    var newRow = sheet_target.getLastRow() + 1;
+    var rowDataLog = [];
+    
+    var Curr_Date = Utilities.formatDate(new Date(), "North America/Los Angeles", 'MM/dd/yyyy');
+    rowDataLog[0] = Curr_Date;  // Date will be written in column A.
+
+    var Curr_Time = Utilities.formatDate(new Date(), "North America/Los Angeles", 'HH:mm:ss');
+    rowDataLog[1] = Curr_Time;  // Time will be written in column B.
+
+    var sts_val = '';
+
+    for (var param in e.parameter) {
+      var value = stripQuotes(e.parameter[param]);
+      switch (param) {
+        case 'sts':
+          sts_val = value;
+          break;
+
+        case 'led1':
+          rowDataLog[2] = value;  // The state of Switch_1 (LED 1) will be written in column C.
+          result += ', LED 1 Written on column C';
+          break;
+
+        case 'led2':
+          rowDataLog[3] = value;  // The state of Switch_2 (LED 2) will be written in column D.
+          result += ', LED 2 Written on column D';
+          break;
+
+        case 'potvolt':
+          rowDataLog[4] = value;  // The potentiometer voltage will be written in column E.
+          result += ', Potentiometer Voltage Written on column E';
+          break;
+
+        case 'potres':
+          rowDataLog[5] = value;  // The potentiometer resistance will be written in column F.
+          result += ', Potentiometer Resistance Written on column F';
+          break;
+
+        default:
+          result += ", unsupported parameter";
+      }
+    }
+    
+    // Conditions for writing data received from ESP32 to Google Sheets.
+    if (sts_val == 'write') {
+      Logger.log(JSON.stringify(rowDataLog));
+      var newRangeDataLog = sheet_target.getRange(newRow, 1, 1, rowDataLog.length);
+      newRangeDataLog.setValues([rowDataLog]);
+
+      // Copy the latest data to columns H-M
+      var latestDataRange = sheet_target.getRange(newRow, 1, 1, rowDataLog.length);
+      var latestData = latestDataRange.getValues();
+      var latestDataTarget = sheet_target.getRange(3, 8, 1, latestData[0].length); // Assumes starting at row 3, columns H-M
+      latestDataTarget.setValues(latestData);
+      
+      return ContentService.createTextOutput(result);
+    }
+
+    if (sts_val == 'read') {
+      var all_Data = sheet_target.getRange('L3:M3').getValues()[0].join(',');
+      return ContentService.createTextOutput(all_Data);
+    }
+  }
+}
+
+function stripQuotes(value) {
+  return value.replace(/^["']|['"]$/g, "");
+}

@@ -1,0 +1,221 @@
+#include <Wire.h>
+#include "WiFi.h"
+#include <HTTPClient.h>
+#include <hd44780.h>
+#include <hd44780ioClass/hd44780_I2Cexp.h>
+
+#define On_Board_LED_PIN  2
+#define LED_1_PIN 13
+#define LED_2_PIN 12
+#define POTENTIOMETER_PIN  34
+
+hd44780_I2Cexp lcd;
+
+const char* ssid = "nt";
+const char* password = "nt_1414_this_is_new_password";
+
+String Web_App_URL = "https://script.google.com/macros/s/AKfycbw0DOz6HWJ_FTqRLUFzb7ttwCfzAW0AoLm7duV9bbOXFlwEkG3Cli72nXHHnLEDVah1/exec";
+
+String LED_1_State = "";
+String LED_2_State = "";
+
+float PotVoltage;
+float PotResistance;
+float SupplyVoltage = 5;
+
+unsigned long lastDisplayTime = 0;
+const unsigned long displayInterval = 5000;
+bool showLEDs = true;
+
+String getValue(String data, char separator, int index) {
+  int found = 0;
+  int strIndex[] = { 0, -1 };
+  int maxIndex = data.length() - 1;
+
+  for (int i = 0; i <= maxIndex && found <= index; i++) {
+    if (data.charAt(i) == separator || i == maxIndex) {
+      found++;
+      strIndex[0] = strIndex[1] + 1;
+      strIndex[1] = (i == maxIndex) ? i+1 : i;
+    }
+  }
+  return found > index ? data.substring(strIndex[0], strIndex[1]) : "";
+}
+
+void Read_Potentiometer_Data() {
+  int potValue = analogRead(POTENTIOMETER_PIN);
+  PotVoltage = (potValue / 4095.0) * SupplyVoltage;
+  PotResistance = (SupplyVoltage / PotVoltage - 1) * 10000;
+
+  Serial.print(F("Potentiometer Voltage : "));
+  Serial.print(PotVoltage);
+  Serial.print(F("V | Potentiometer Resistance : "));
+  Serial.print(PotResistance);
+  Serial.println(F("Ω"));
+}
+
+void Control_LEDs() {
+  if (PotVoltage > 2.5) {
+    digitalWrite(LED_1_PIN, HIGH);
+    LED_1_State = "On";
+  } else {
+    digitalWrite(LED_1_PIN, LOW);
+    LED_1_State = "Off";
+  }
+
+  if (PotVoltage < 2.5) {
+    digitalWrite(LED_2_PIN, HIGH);
+    LED_2_State = "On";
+  } else {
+    digitalWrite(LED_2_PIN, LOW);
+    LED_2_State = "Off";
+  }
+
+  Serial.print(F("LED_1 : "));
+  Serial.print(LED_1_State);
+  Serial.print(F(" | LED_2 : "));
+  Serial.println(LED_2_State);
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+
+  pinMode(LED_1_PIN, OUTPUT);
+  pinMode(LED_2_PIN, OUTPUT);
+  pinMode(On_Board_LED_PIN, OUTPUT);
+
+  lcd.begin(16, 2);
+  lcd.backlight();
+  lcd.clear();
+
+  Serial.println("WIFI mode : STA");
+  WiFi.mode(WIFI_STA);
+
+  Serial.print("Connecting to ");
+  Serial.println(ssid);
+  WiFi.begin(ssid, password);
+
+  int connecting_process_timed_out = 40;
+  while (WiFi.status() != WL_CONNECTED) {
+    Serial.print(".");
+    digitalWrite(On_Board_LED_PIN, HIGH);
+    delay(250);
+    digitalWrite(On_Board_LED_PIN, LOW);
+    delay(250);
+    if (connecting_process_timed_out > 0) connecting_process_timed_out--;
+    if (connecting_process_timed_out == 0) {
+      delay(1000);
+      ESP.restart();
+    }
+  }
+
+  digitalWrite(On_Board_LED_PIN, LOW);
+  
+  Serial.println("WiFi connected");
+}
+
+void loop() {
+  Read_Potentiometer_Data();
+  Control_LEDs();
+
+  if (WiFi.status() == WL_CONNECTED) {
+    digitalWrite(On_Board_LED_PIN, HIGH);
+
+    String Send_Data_URL = Web_App_URL + "?sts=write";
+    Send_Data_URL += "&led1=" + LED_1_State;
+    Send_Data_URL += "&led2=" + LED_2_State;
+    Send_Data_URL += "&potvolt=" + String(PotVoltage);
+    Send_Data_URL += "&potres=" + String(PotResistance);
+
+    Serial.println("Send data to Google Spreadsheet...");
+    Serial.print("URL : ");
+    Serial.println(Send_Data_URL);
+
+    HTTPClient http;
+    http.begin(Send_Data_URL.c_str());
+    http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+    int httpCode = http.GET(); 
+    Serial.print("HTTP Status Code : ");
+    Serial.println(httpCode);
+
+    String payload;
+    if (httpCode > 0) {
+      payload = http.getString();
+      Serial.println("Payload : " + payload);    
+    }
+      
+    http.end();
+    
+    digitalWrite(On_Board_LED_PIN, LOW);
+
+    // Reading data back from Google Sheets
+    String Read_Data_URL = Web_App_URL + "?sts=read";
+
+    Serial.println();
+    Serial.println("-------------");
+    Serial.println("Read data from Google Spreadsheet...");
+    Serial.print("URL : ");
+    Serial.println(Read_Data_URL);
+
+    http.begin(Read_Data_URL.c_str());
+    http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+
+    httpCode = http.GET(); 
+    Serial.print("HTTP Status Code : ");
+    Serial.println(httpCode);
+  
+    if (httpCode > 0) {
+      payload = http.getString();
+      Serial.println("Payload : " + payload);
+
+      LED_1_State = getValue(payload, ',', 0);
+      LED_2_State = getValue(payload, ',', 1);
+      PotVoltage = getValue(payload, ',', 2).toFloat();
+      PotResistance = getValue(payload, ',', 3).toFloat();
+
+      // Convert "On" or "Off" to HIGH or LOW for LED control
+      digitalWrite(LED_1_PIN, LED_1_State == "On" ? HIGH : LOW);
+      digitalWrite(LED_2_PIN, LED_2_State == "On" ? HIGH : LOW);
+
+      // Alternate display every few seconds
+      if (millis() - lastDisplayTime >= displayInterval) {
+        lastDisplayTime = millis();
+        showLEDs = !showLEDs;
+
+        lcd.clear();
+        if (showLEDs) {
+          lcd.setCursor(0, 0);
+          lcd.print("LED 1: ");
+          lcd.print(LED_1_State);
+          lcd.setCursor(0, 1);
+          lcd.print("LED 2: ");
+          lcd.print(LED_2_State);
+        } else {
+          lcd.setCursor(0, 0);
+          lcd.print("Volt: ");
+          lcd.print(PotVoltage);
+          lcd.setCursor(0, 1);
+          lcd.print("Res: ");
+          lcd.print(PotResistance);
+        }
+      }
+    } else {
+      lcd.clear();
+      lcd.setCursor(0,0);
+      lcd.print("Failed to");
+      lcd.setCursor(0,1);
+      lcd.print("get data !");
+      delay(2000);
+      lcd.clear();
+      lcd.setCursor(0,0);
+      lcd.print("Please wait to");
+      lcd.setCursor(0,1);
+      lcd.print("get data again.");
+    }
+    
+    http.end();
+  }
+  
+  delay(10000);
+}
