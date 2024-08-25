@@ -4,6 +4,7 @@
 #include <hd44780.h>
 #include <hd44780ioClass/hd44780_I2Cexp.h>
 
+// Input pins definition
 #define On_Board_LED_PIN  2
 #define LED_1_PIN 13
 #define LED_2_PIN 12
@@ -11,17 +12,17 @@
 
 hd44780_I2Cexp lcd;
 
-const char* ssid = "nt";
-const char* password = "nt_1414_this_is_new_password";
+const char* ssid = "YOUR_WIFI_SSID"; // Replace with your Wi-Fi's name
+const char* password = "YOUR_WIFI_PASSWORD"; // Replace with the password
 
-String Web_App_URL = "https://script.google.com/macros/s/AKfycbw0DOz6HWJ_FTqRLUFzb7ttwCfzAW0AoLm7duV9bbOXFlwEkG3Cli72nXHHnLEDVah1/exec";
+String Web_App_URL = "APPS_SCRIPT_URL"; // Replace with the Apps Script URL after deployment
 
 String LED_1_State = "";
 String LED_2_State = "";
 
 float PotVoltage;
 float PotResistance;
-float SupplyVoltage = 5;
+float SupplyVoltage = 5; // Assuming 5V input
 
 unsigned long lastDisplayTime = 0;
 const unsigned long displayInterval = 5000;
@@ -54,6 +55,7 @@ void Read_Potentiometer_Data() {
   Serial.println(F("Ω"));
 }
 
+// Switching LED based on the voltage across POT
 void Control_LEDs() {
   if (PotVoltage > 2.5) {
     digitalWrite(LED_1_PIN, HIGH);
@@ -78,13 +80,14 @@ void Control_LEDs() {
 }
 
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(115200); // Set Baud rate to 115200 on Arduino IDE
   delay(1000);
 
   pinMode(LED_1_PIN, OUTPUT);
   pinMode(LED_2_PIN, OUTPUT);
   pinMode(On_Board_LED_PIN, OUTPUT);
 
+  // For a 1602 LCD, change the format as needed
   lcd.begin(16, 2);
   lcd.backlight();
   lcd.clear();
@@ -122,6 +125,7 @@ void loop() {
   if (WiFi.status() == WL_CONNECTED) {
     digitalWrite(On_Board_LED_PIN, HIGH);
 
+    // For the Google Sheet format: LED 1, LED 2, Voltage, Resistance (change if different format)
     String Send_Data_URL = Web_App_URL + "?sts=write";
     Send_Data_URL += "&led1=" + LED_1_State;
     Send_Data_URL += "&led2=" + LED_2_State;
